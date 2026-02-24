@@ -78,3 +78,15 @@ jobs:
             git push origin "${GIT_TAG}"
             echo "Created and pushed tag ${GIT_TAG}"
           fi
+
+      - name: Build Docker image
+        id: build
+        run: |
+          DOCKER_TAG="${{ steps.version.outputs.docker_tag }}"
+          FULL_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${DOCKER_TAG}"
+
+          echo "IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${DOCKER_TAG}" >> $GITHUB_ENV
+
+          docker buildx build \
+            --tag "${FULL_IMAGE}" .
