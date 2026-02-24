@@ -1,0 +1,80 @@
+name: CD Staging Deployment
+
+on:
+  push:
+    branches:
+      - "release/*"
+      - "hotfix/*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create git tags
+  id-token: write
+
+concurrency:
+  group: cd-stg
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.STG_ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.STG_ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ secrets.STG_ECS_CLUSTER }}
+  ECS_SERVICE: ${{ secrets.STG_ECS_SERVICE }}
+  ECS_TASK_DEFINITION: ${{ secrets.STG_ECS_TASK_DEFINITION }}
+  ECS_CONTAINER_NAME: ${{ secrets.ECS_CONTAINER_NAME }}
+  DOCKER_BUILDKIT: 1
+  ASSET_HOST: ${{ secrets.STG_ASSET_HOST }}
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+
+    # GitHub Environment — approval gate
+    environment:
+      name: stag
+
+    steps:
+      #  1.Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      # 2. Extract version from branch name
+      - name: Extract version from branch name
+        id: version
+        run: |
+          # GITHUB_REF_NAME = release/1.4.0 or hotfix/1.4.1
+          BRANCH="${GITHUB_REF_NAME}"
+          VERSION="${BRANCH#release/}"
+          VERSION="${VERSION#hotfix/}"
+
+          if [[ -z "$VERSION" || "$VERSION" == "$BRANCH" ]]; then
+            echo "::error::Could not extract version from branch '${BRANCH}'. Expected format: release/<version> or hotfix/<version>"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "git_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "### Release: v${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+
+      # 3. Create git tag v<version>
+      - name: Create git tag
+        run: |
+          GIT_TAG="${{ steps.version.outputs.git_tag }}"
+
+          # Skip if tag already exists (re-run scenario)
+          if git rev-parse "refs/tags/${GIT_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${GIT_TAG} already exists, skipping creation."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "${GIT_TAG}" -m "Release ${GIT_TAG}"
+            git push origin "${GIT_TAG}"
+            echo "Created and pushed tag ${GIT_TAG}"
+          fi
