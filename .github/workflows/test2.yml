@@ -89,4 +89,4 @@ jobs:
           echo "IMAGE_TAG=${DOCKER_TAG}" >> $GITHUB_ENV
 
           docker buildx build \
-            --tag "${IMAGE_TAG}" .
+            --tag "${DOCKER_TAG}" .
